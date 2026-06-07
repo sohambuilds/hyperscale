@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from scenarios import ramp
+from scenarios import campaign, ramp
 from scenarios.ramp import Score
 from server.schemas import (
     ControlMessage,
@@ -30,7 +30,9 @@ BASE_TICK_SECONDS: float = 0.25  # real seconds between ticks at 1x speed
 
 # scenario name -> (build initial state, scenario length in sim-seconds)
 _SCENARIOS: dict[str, tuple[Callable[[int], ClusterState], float]] = {
+    "cadet": (campaign.make_cadet, campaign.CADET_DURATION_S),
     "ramp": (ramp.make_state, float(ramp.DURATION_S)),
+    "crunch": (campaign.make_crunch, campaign.CRUNCH_DURATION_S),
 }
 
 

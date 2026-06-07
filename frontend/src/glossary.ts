@@ -92,4 +92,32 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     term: "Time",
     short: "Elapsed simulated seconds out of the scenario's total length.",
   },
+  quant: {
+    term: "Quantization",
+    short: "Storing weights in fewer bits (FP16→INT4): more throughput and less memory, for a small quality hit.",
+  },
+  batch: {
+    term: "Batch size",
+    short: "How many requests share one GPU forward pass — bigger batches lift throughput but raise the latency tail.",
+  },
+  tp: {
+    term: "Tensor parallelism",
+    short: "Splitting one model across several GPUs so they compute each layer together — needs fast NVLink.",
+  },
+  kv: {
+    term: "KV cache",
+    short: "Reusing each request's attention state instead of recomputing it — the single biggest serving speedup.",
+  },
+  spec: {
+    term: "Speculative decoding",
+    short: "A small draft model guesses several tokens that the big model verifies in one pass — faster streaming.",
+  },
+  quality: {
+    term: "Quality",
+    short: "Relative answer quality vs full FP16 precision — quantization trades a few points for speed.",
+  },
+  triangle: {
+    term: "The hard triangle",
+    short: "Latency SLOs, cost & power, and incoming traffic pull against each other — push one corner and the other two strain.",
+  },
 };

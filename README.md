@@ -31,3 +31,23 @@ uv run python -m sim_core.run --scenario ramp --seed 1   # headless run (once th
 ```
 
 Requires [uv](https://docs.astral.sh/uv/) and Python >= 3.12.
+
+## Play the builder (datacenter construction tycoon)
+
+The game is a from-scratch datacenter **construction tycoon** — build power, cooling, racks and
+GPU servers on an isometric floor, sign SLA contracts, and balance capacity against bursty
+demand. Design: [`docs/BUILDER.md`](docs/BUILDER.md). It runs entirely in the browser (no
+backend needed; the sim engine integrates later).
+
+```bash
+cd frontend
+npm install
+npm run dev        # play at http://localhost:5173
+npm run build      # static site in frontend/dist/
+```
+
+**Deploy:** `frontend/dist/` is a plain static bundle — drop it on any static host
+(Vercel/Netlify/GitHub Pages/itch.io). No server required. e.g. with Vercel:
+`cd frontend && npm run build && npx vercel deploy --prebuilt dist` (or point the host at the
+`frontend` dir with build command `npm run build` and output `dist`). Progress saves to
+`localStorage`, so a single static page is all you need.
