@@ -135,7 +135,7 @@ function RackInspector({ sel, onInstall, onRemove, onPolicy, onSetGpuType, onSel
             − Remove
           </button>
           <span className="gpu-count ds-num">{gpus}</span>
-          <button type="button" className="btn" onClick={() => onInstall(sel.id)} disabled={gpus >= RACK_SLOTS}>
+          <button type="button" data-tut="build" className="btn" onClick={() => onInstall(sel.id)} disabled={gpus >= RACK_SLOTS}>
             + Install
           </button>
         </div>

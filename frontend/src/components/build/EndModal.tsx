@@ -1,3 +1,4 @@
+import { TECHS } from "../../game/config";
 import { fmt } from "../../format";
 import type { GameState } from "../../game/types";
 
@@ -25,7 +26,7 @@ export function EndModal({ state, onReset, onContinue }: EndModalProps) {
           <Stat label="Total earned" value={fmt.money(state.totalEarned)} />
           <Stat label="Requests served" value={fmt.int(state.servedTotal)} />
           <Stat label="Peak reputation" value={state.peakReputation.toFixed(1)} />
-          <Stat label="Tech installed" value={`${state.unlocked.length}/6`} />
+          <Stat label="Tech installed" value={`${state.unlocked.length}/${TECHS.length}`} />
           <Stat label="Time" value={fmt.clock(state.tick)} />
         </div>
         <div className="endcard-actions">
