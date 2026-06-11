@@ -1,12 +1,13 @@
-// Floating command bar: brand · ticking cash + goal · clock/rep/transport + panel openers.
-// Adapted from build/GameTopBar (same classes/tokens) with two additions for the full-viewport
-// shell: a reputation readout and Contracts/Research panel buttons with badges.
+// The floating HUD top row, game-style: left cluster = identity (brand, level badge, cash chip),
+// right cluster = facility rings, contracts chip, research, transport, system buttons. All chips
+// live in chips.tsx; this file is layout + wiring.
 
-import { GOAL_CASH, TECHS } from "../../../game/config";
+import { TECHS } from "../../../game/config";
 import { computeStats, techLock } from "../../../game/engine";
 import { fmt } from "../../../format";
 import type { GameState } from "../../../game/types";
-import { useAnimatedNumber } from "../../mc/hooks";
+import { BuildersChip, CashChip, ContractsChip, LevelBadge, UtilRings } from "./chips";
+import { IconFlask, IconHelp } from "./icons";
 
 const SPEEDS = [1, 2, 4];
 
@@ -35,52 +36,51 @@ export function TopBar({
   onTutorial,
   onTogglePanel,
 }: TopBarProps) {
-  const m = computeStats(state);
-  const cash = useAnimatedNumber(state.cash) ?? state.cash;
-  const ratePerMin = m.profitPerSec * 60;
-  const goalFrac = Math.max(0, Math.min(1, state.cash / GOAL_CASH));
+  const stats = computeStats(state);
   const researchable = TECHS.filter((t) => techLock(state, t) === null).length;
 
   return (
-    <header className="gtopbar tyc-bar">
-      <div className="gt-brand">
+    <header className="tyc-hud-row">
+      {/* left: who you are + your money */}
+      <div className="hud-cluster">
         <span className="gt-mark" aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 22 22">
-            <polygon
-              points="11,2 20,18 2,18"
-              fill="none"
-              stroke="var(--c-cyan)"
-              strokeWidth="1.6"
-              strokeLinejoin="round"
-            />
+            <polygon points="11,2 20,18 2,18" fill="none" stroke="var(--c-cyan)" strokeWidth="1.6" strokeLinejoin="round" />
             <circle cx="11" cy="2" r="2" fill="var(--c-cyan)" />
             <circle cx="20" cy="18" r="2" fill="var(--c-amber)" />
             <circle cx="2" cy="18" r="2" fill="var(--c-magenta)" />
           </svg>
         </span>
-        <div className="gt-name">
-          <span className="ds-brand">INFERENCE</span>
-          <span className="gt-sub ds-label">ai datacenter tycoon</span>
-        </div>
+        <LevelBadge state={state} />
+        <CashChip state={state} ratePerMin={stats.profitPerSec * 60} />
       </div>
 
-      <div className="gt-cash">
-        <div className="gt-cash-row">
-          <span className={"gt-cash-val ds-num" + (state.cash < 0 ? " neg" : "")}>{fmt.money(cash)}</span>
-          <span className={"gt-rate ds-num " + (ratePerMin >= 0 ? "is-good" : "is-bad")}>
-            {ratePerMin >= 0 ? "▲" : "▼"} {fmt.money(Math.abs(ratePerMin))}/min
+      {/* right: facility + panels + time */}
+      <div className="hud-cluster">
+        <BuildersChip state={state} />
+        <UtilRings state={state} stats={stats} />
+
+        <ContractsChip
+          state={state}
+          active={panel === "contracts"}
+          attention={offersAttention}
+          onClick={() => onTogglePanel("contracts")}
+        />
+
+        <button
+          type="button"
+          data-tut="research-tab"
+          className={"chip btn-chip" + (panel === "research" ? " active" : "")}
+          onClick={() => onTogglePanel("research")}
+          title="Research — real serving techniques, real tradeoffs"
+        >
+          <span className="chip-icon is-violet">
+            <IconFlask size={14} />
           </span>
-        </div>
-        <div className="gt-goal" title={`Goal: ${fmt.money(GOAL_CASH)}`}>
-          <div className="gt-goal-fill" style={{ width: `${goalFrac * 100}%` }} />
-          <span className="gt-goal-label ds-code">goal {fmt.money(GOAL_CASH)}</span>
-        </div>
-      </div>
+          Research
+          {researchable > 0 && <span className="rp-badge">{researchable}</span>}
+        </button>
 
-      <div className="gt-transport">
-        <span className="tyc-rep ds-num" title="Reputation — honour contracts to raise it; unlocks better hardware and clients">
-          ★ {state.reputation.toFixed(1)}
-        </span>
         <span className="gt-clock ds-num">{fmt.clock(state.tick)}</span>
         <button
           type="button"
@@ -94,39 +94,11 @@ export function TopBar({
         </button>
         <div className="speeds">
           {SPEEDS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className={"speed" + (s === state.speed ? " on" : "")}
-              onClick={() => onSpeed(s)}
-            >
+            <button key={s} type="button" className={"speed" + (s === state.speed ? " on" : "")} onClick={() => onSpeed(s)}>
               {s}×
             </button>
           ))}
         </div>
-
-        <button
-          type="button"
-          data-tut="contracts-tab"
-          className={"icon-btn tyc-btn-labeled" + (panel === "contracts" ? " active" : "")}
-          onClick={() => onTogglePanel("contracts")}
-          title="Contracts — sign demand, watch SLA health"
-        >
-          Contracts
-          {state.offers.length > 0 && (
-            <span className={"rp-badge" + (offersAttention ? " tyc-pulse" : "")}>{state.offers.length}</span>
-          )}
-        </button>
-        <button
-          type="button"
-          data-tut="research-tab"
-          className={"icon-btn tyc-btn-labeled" + (panel === "research" ? " active" : "")}
-          onClick={() => onTogglePanel("research")}
-          title="Research — real serving techniques, real tradeoffs"
-        >
-          Research
-          {researchable > 0 && <span className="rp-badge">{researchable}</span>}
-        </button>
 
         <button
           type="button"
@@ -135,16 +107,7 @@ export function TopBar({
           aria-label={state.muted ? "Unmute" : "Mute"}
           title={state.muted ? "Unmute" : "Mute"}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2.5 6 H5 L8 3 V13 L5 10 H2.5 Z" fill="currentColor" stroke="none" />
             {state.muted ? (
               <path d="M11 6 L14 10 M14 6 L11 10" />
@@ -157,7 +120,7 @@ export function TopBar({
           </svg>
         </button>
         <button type="button" className="icon-btn" onClick={onTutorial} aria-label="How to play" title="How to play">
-          ?
+          <IconHelp size={15} />
         </button>
         <button type="button" className="gt-newgame" onClick={onReset} title="Start a new game">
           New game

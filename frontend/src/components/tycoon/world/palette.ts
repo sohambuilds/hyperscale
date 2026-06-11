@@ -13,6 +13,9 @@ export interface Palette {
   blue: string;
   violet: string;
   magenta: string;
+  teal: string;
+  gold: string;
+  orange: string;
   fg: string;
   fgMuted: string;
   fgDim: string;
@@ -37,19 +40,23 @@ const FALLBACK: Palette = {
   blue: "#60a5fa",
   violet: "#c084fc",
   magenta: "#f472b6",
-  fg: "#e6e9f0",
-  fgMuted: "#9aa3b8",
-  fgDim: "#5e6781",
-  voidC: "#07090f",
-  base: "#0b0e14",
-  panel: "#101521",
-  panel2: "#161c2b",
-  border: "#232a3b",
-  faceL: "#0b1020",
-  faceR: "#11192c",
-  faceT: "#1b2440",
-  faceTSel: "#243156",
-  rim: "rgba(255,255,255,0.14)",
+  teal: "#2dd4bf",
+  gold: "#fcd34d",
+  orange: "#fb923c",
+  fg: "#eef1fa",
+  fgMuted: "#a8b3d4",
+  fgDim: "#6b76a3",
+  voidC: "#0d0b2c",
+  base: "#11123a",
+  panel: "#151a3e",
+  panel2: "#1b2150",
+  border: "#2b3370",
+  // box faces: luminous indigo instead of near-black graphite — buildings read as assets
+  faceL: "#1d2456",
+  faceR: "#262e6e",
+  faceT: "#39418f",
+  faceTSel: "#4c5ab5",
+  rim: "rgba(150,190,255,0.30)",
 };
 
 export function resolvePalette(): Palette {
@@ -66,6 +73,9 @@ export function resolvePalette(): Palette {
       blue: v("--c-blue", FALLBACK.blue),
       violet: v("--c-violet", FALLBACK.violet),
       magenta: v("--c-magenta", FALLBACK.magenta),
+      teal: v("--c-teal", FALLBACK.teal),
+      gold: v("--c-gold", FALLBACK.gold),
+      orange: v("--c-orange", FALLBACK.orange),
       fg: v("--c-fg-1", FALLBACK.fg),
       fgMuted: v("--c-fg-2", FALLBACK.fgMuted),
       fgDim: v("--c-fg-3", FALLBACK.fgDim),
@@ -92,6 +102,31 @@ export function withAlpha(color: string, a: number): string {
     return `rgba(${r},${g},${b},${a})`;
   }
   return color;
+}
+
+/** Parse "#rrggbb" or "rgb(r,g,b)" → [r,g,b], or null. */
+function parseRGB(color: string): [number, number, number] | null {
+  if (color.startsWith("#") && color.length === 7) {
+    const n = parseInt(color.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const m = /^rgba?\(([^)]+)\)$/.exec(color);
+  if (m) {
+    const [r, g, b] = m[1].split(",").map((x) => parseFloat(x));
+    return [r, g, b];
+  }
+  return null;
+}
+
+/** Linear blend a→b by t (t in 0..1; t=0 is all `a`). Returns "rgb(...)"; passes `a` through on parse failure. */
+export function mix(a: string, b: string, t: number): string {
+  const pa = parseRGB(a);
+  const pb = parseRGB(b);
+  if (!pa || !pb) return a;
+  const r = Math.round(pa[0] * (1 - t) + pb[0] * t);
+  const g = Math.round(pa[1] * (1 - t) + pb[1] * t);
+  const bl = Math.round(pa[2] * (1 - t) + pb[2] * t);
+  return `rgb(${r},${g},${bl})`;
 }
 
 /** Sled/accent tint per GPU tier (matches the token hues used across the UI). */

@@ -3,10 +3,10 @@
 // contract portfolio, stakes, a session goal, and the real serving tech tree. (sim_core
 // integration comes later — see docs/BUILDER.md.)
 
-export type Tool = "cursor" | "power" | "cooling" | "rack" | "sell";
+export type Tool = "cursor" | "power" | "cooling" | "rack" | "network" | "crewpod" | "sell";
 
 /** Things that occupy a grid tile. GPU servers install into a rack's slots. */
-export type PlaceableKind = "power" | "cooling" | "rack";
+export type PlaceableKind = "power" | "cooling" | "rack" | "network" | "crewpod";
 
 /** Per-rack serving policy — the central batch-size ↔ latency dial. */
 export type Policy = "latency" | "throughput";
@@ -19,7 +19,8 @@ export interface Placed {
   kind: PlaceableKind;
   col: number;
   row: number;
-  tier?: number; // power/cooling upgrade level (0 = base, 1 = upgraded)
+  tier?: number; // power/cooling/network upgrade level (0 = base, 1 = upgraded)
+  buildMs?: number; // ms of construction remaining; >0 = under construction (not operational)
   // rack-only:
   gpus?: number; // installed GPU servers (0..RACK_SLOTS)
   policy?: Policy;
@@ -94,6 +95,7 @@ export interface Stats {
   pue: number;
   latencyCap: number;
   throughputCap: number;
+  netCap: number; // req/s the uplink can carry (base + network gear)
   gpus: number;
   gpusOnline: number;
   demand: number;
@@ -126,6 +128,10 @@ export interface GameState {
   servedTotal: number;
   peakReputation: number;
   peakCash: number;
+  // quests (chain of detected goals; the one click is claiming):
+  questDone: string[]; // completed (latched by tick detection)
+  questClaimed: string[]; // rewards collected
+  questProg: Record<string, number>; // counters for transient conditions (peaks, hold streaks)
   // ui / flavor:
   message: string | null;
   nextOfferAt: number;

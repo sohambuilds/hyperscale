@@ -5,10 +5,13 @@
 
 import { useEffect, useRef, type MutableRefObject } from "react";
 
-import { inBounds } from "../../game/engine";
+import { builderInfo, inBounds } from "../../game/engine";
 import type { Game } from "../../game/useGame";
 import type { GameState, Placed } from "../../game/types";
+import { AmbientSystem } from "./world/ambient";
 import { AnimTracker } from "./world/anim";
+import { BuilderSystem } from "./world/builders";
+import { PedestrianSystem } from "./world/pedestrians";
 import {
   clampCamera,
   fitToHall,
@@ -20,7 +23,6 @@ import { FxSystem } from "./world/fx";
 import { resolvePalette } from "./world/palette";
 import { tileAt } from "./world/projection";
 import { drawOverlays, drawScene } from "./world/scene";
-import { drawBackdrop } from "./world/sprites/floor";
 import { entityAt } from "./world/sprites/common";
 import type { FrameData, HoverTile } from "./world/types";
 
@@ -58,12 +60,27 @@ export function WorldCanvas({ game, frameRef }: WorldCanvasProps) {
     const pal = resolvePalette();
     const anims = new AnimTracker();
     const fx = new FxSystem();
+    const crew = new BuilderSystem();
+    const peds = new PedestrianSystem();
+    const ambient = new AmbientSystem();
     const hoverRef: { current: HoverTile | null } = { current: null };
     const panRef: { current: PanState | null } = { current: null };
     let raf = 0;
     let last = performance.now();
     let lastState: GameState | null = null;
     let servingRacks: Placed[] = [];
+    let consJobs: Placed[] = [];
+    let powerUnits: Placed[] = [];
+    let prevJobIds = new Set<string>();
+    let builderTotal = 0;
+    // camera game-feel kit (breach shake / placement punch / idle drift) — all transient
+    // render offsets, never written into camRef, all suppressed under reduced-motion
+    let shakeAt = -1e9;
+    let punchAt = -1e9;
+    let lastPointerTs = performance.now();
+    let prevBreaching = 0;
+    let prevPlacedN = 0;
+    let feelSeeded = false;
 
     const resize = (): void => {
       const vw = wrap.clientWidth;
@@ -95,23 +112,72 @@ export function WorldCanvas({ game, frameRef }: WorldCanvasProps) {
         anims.sync(fd.state, now);
         fx.syncGameFx(fd.state);
         servingRacks = fd.state.placed.filter((p) => p.kind === "rack" && (p.gpus ?? 0) > 0);
+        consJobs = fd.state.placed.filter((p) => p.buildMs != null && p.buildMs > 0);
+        powerUnits = fd.state.placed.filter((p) => p.kind === "power" && !(p.buildMs != null && p.buildMs > 0));
+        builderTotal = builderInfo(fd.state).total;
+        // construction-complete ceremony: a job left the queue but the building still exists
+        const jobIds = new Set(consJobs.map((p) => p.id));
+        for (const id of prevJobIds) {
+          if (jobIds.has(id)) continue;
+          const done = fd.state.placed.find((p) => p.id === id);
+          if (done && feelSeeded) {
+            fx.celebrate(done.col, done.row, done.kind);
+            punchAt = now;
+          }
+        }
+        prevJobIds = jobIds;
+        const breachingN = fd.state.contracts.filter((c) => c.status === "breaching").length;
+        if (feelSeeded) {
+          if (breachingN > prevBreaching) shakeAt = now; // a breach just started → thud
+          if (fd.state.placed.length > prevPlacedN) punchAt = now; // something built → punch
+        }
+        prevBreaching = breachingN;
+        prevPlacedN = fd.state.placed.length;
+        feelSeeded = true;
         lastState = fd.state;
       }
-      fx.update(dt, fd.state.paused ? 0 : fd.stats.served, servingRacks);
+      fx.update(dt, fd.state.paused ? 0 : fd.stats.served, servingRacks, powerUnits);
+      crew.update(dt, consJobs, builderTotal, now);
+      peds.update(dt, fd.state.placed, now);
       anims.prune(now);
 
       const cam = clampCamera(camRef.current ?? fitToHall(vw, vh));
       camRef.current = cam;
-      // debug/testing affordance: lets tooling map world↔screen without reaching into React
-      (canvas as HTMLCanvasElement & { __cam?: Camera }).__cam = cam;
+      // debug/testing affordance: lets tooling map world↔screen + inspect ambient agents
+      const dbg = canvas as HTMLCanvasElement & { __cam?: Camera; __peds?: PedestrianSystem };
+      dbg.__cam = cam;
+      dbg.__peds = peds;
+
+      // transient feel offsets (screen-constant: shake divides by zoom)
+      let feelX = 0;
+      let feelY = 0;
+      let punch = 1;
+      if (!fx.reduced) {
+        const st = now - shakeAt;
+        if (st < 260) {
+          const amp = 4 * Math.exp(-st / 80);
+          feelX = (Math.random() * 2 - 1) * amp;
+          feelY = (Math.random() * 2 - 1) * amp;
+        }
+        const pt = now - punchAt;
+        if (pt < 140) punch = 1 + 0.03 * Math.sin((pt / 140) * Math.PI);
+        if (now - lastPointerTs > 8000 && !fd.state.paused) {
+          feelX += Math.sin(now / 6000) * 2;
+          feelY += Math.cos(now / 7400) * 1.5;
+        }
+      }
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawBackdrop(ctx, pal, vw, vh);
+      ambient.drawSky(ctx, vw, vh, now);
       ctx.save();
-      ctx.translate(vw / 2, vh / 2);
-      ctx.scale(cam.zoom, cam.zoom);
+      ctx.translate(vw / 2 + feelX, vh / 2 + feelY);
+      ctx.scale(cam.zoom * punch, cam.zoom * punch);
       ctx.translate(-cam.x, -cam.y);
-      drawScene(ctx, fd, hoverRef.current, anims, fx, pal, now);
+      ambient.drawBelow(ctx, pal, now);
+      // people are depth-sorted INTO the scene so cabinets occlude staff walking behind them
+      const actors = [...peds.actors(pal, now), ...crew.actors(pal, consJobs, now)];
+      drawScene(ctx, fd, hoverRef.current, anims, fx, pal, now, actors);
+      ambient.drawAbove(ctx, pal, now);
       ctx.restore();
       drawOverlays(ctx, fd, pal, vw, vh, now);
 
@@ -130,6 +196,7 @@ export function WorldCanvas({ game, frameRef }: WorldCanvasProps) {
     };
 
     const onPointerDown = (e: PointerEvent): void => {
+      lastPointerTs = performance.now();
       try {
         canvas.setPointerCapture(e.pointerId);
       } catch {
@@ -142,6 +209,7 @@ export function WorldCanvas({ game, frameRef }: WorldCanvasProps) {
     };
 
     const onPointerMove = (e: PointerEvent): void => {
+      lastPointerTs = performance.now();
       const { sx, sy } = localPoint(e);
       const { vw, vh } = sizeRef.current;
       const cam = camRef.current;
@@ -191,6 +259,7 @@ export function WorldCanvas({ game, frameRef }: WorldCanvasProps) {
     };
 
     const onWheel = (e: WheelEvent): void => {
+      lastPointerTs = performance.now();
       e.preventDefault();
       const { sx, sy } = localPoint(e);
       const { vw, vh } = sizeRef.current;

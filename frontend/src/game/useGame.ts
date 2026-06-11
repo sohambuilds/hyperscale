@@ -6,7 +6,7 @@ import { bumpId } from "./contracts";
 import * as E from "./engine";
 import type { GameState, GpuTierId, PlaceableKind, Policy, TechId, Tool } from "./types";
 
-const SAVE_KEY = "hyperscale.builder.v3";
+const SAVE_KEY = "hyperscale.builder.v4";
 
 function maxIdIn(s: GameState): number {
   let max = 0;
@@ -27,6 +27,8 @@ function load(): GameState | null {
     const obj = JSON.parse(raw);
     if (!obj || typeof obj.cash !== "number" || !Array.isArray(obj.placed)) return null;
     const merged: GameState = { ...E.emptyState(), ...obj, fx: [], paused: true };
+    // a restored save is an established facility — finish any in-flight construction
+    merged.placed = merged.placed.map((p) => (p.buildMs != null ? { ...p, buildMs: undefined } : p));
     bumpId(maxIdIn(merged));
     return merged;
   } catch {
@@ -53,10 +55,12 @@ export interface Game {
   setGpuType: (rackId: string, tier: GpuTierId) => void;
   upgradePower: (id: string) => void;
   upgradeCooling: (id: string) => void;
+  upgradeNetwork: (id: string) => void;
   sell: (id: string) => void;
   accept: (offerId: string) => void;
   decline: (offerId: string) => void;
   research: (techId: TechId) => void;
+  claimQuest: (questId: string) => void;
   setPaused: (paused: boolean) => void;
   setSpeed: (speed: number) => void;
   toggleMute: () => void;
@@ -80,6 +84,26 @@ export function useGame(): Game {
   useEffect(() => {
     save(state);
   }, [state]);
+
+  // construction driver — wall-clock, runs even while paused (builders keep working as you plan)
+  useEffect(() => {
+    let last = performance.now();
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const dt = Math.min(1000, now - last);
+      last = now;
+      setState((s) => E.advanceBuilders(s, dt));
+    }, 200);
+    return () => clearInterval(id);
+  }, []);
+
+  // audio: a soft chime when a building finishes construction
+  const prevUnbuilt = useRef(0);
+  useEffect(() => {
+    const unbuilt = state.placed.filter((p) => !E.isBuilt(p)).length;
+    if (unbuilt < prevUnbuilt.current) sfx.install();
+    prevUnbuilt.current = unbuilt;
+  }, [state.placed]);
 
   // audio: mute + ambient hum
   useEffect(() => setMuted(state.muted), [state.muted]);
@@ -171,6 +195,14 @@ export function useGame(): Game {
     setState(next);
   }, []);
 
+  const upgradeNetwork = useCallback((id: string) => {
+    const cur = ref.current;
+    const next = E.upgradeNetwork(cur, id);
+    if (next.cash < cur.cash) sfx.install();
+    else sfx.error();
+    setState(next);
+  }, []);
+
   const sell = useCallback((id: string) => {
     sfx.place();
     setState((s) => E.sellAt(s, id));
@@ -192,6 +224,13 @@ export function useGame(): Game {
     const next = E.research(cur, techId);
     if (next.unlocked.length > cur.unlocked.length) sfx.unlock();
     else sfx.error();
+    setState(next);
+  }, []);
+
+  const claimQuest = useCallback((questId: string) => {
+    const cur = ref.current;
+    const next = E.claimQuest(cur, questId);
+    if (next !== cur) sfx.cash();
     setState(next);
   }, []);
 
@@ -234,10 +273,12 @@ export function useGame(): Game {
     setGpuType,
     upgradePower,
     upgradeCooling,
+    upgradeNetwork,
     sell,
     accept,
     decline,
     research,
+    claimQuest,
     setPaused,
     setSpeed,
     toggleMute,

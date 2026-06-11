@@ -2,7 +2,7 @@
 // label for build tools; a red ring + refund label over the hovered occupant for the sell tool;
 // a subtle rim for the cursor tool.
 
-import { GPU_TIERS, RACK_CAPEX, SELL_REFUND, COOLING_TIERS, POWER_TIERS } from "../../../../game/config";
+import { COOLING_TIERS, CREWPOD, GPU_TIERS, NETWORK_TIERS, POWER_TIERS, RACK_CAPEX, SELL_REFUND } from "../../../../game/config";
 import type { Placed, PlaceableKind } from "../../../../game/types";
 import { fmt } from "../../../../format";
 import type { Point } from "../../../../iso";
@@ -11,9 +11,11 @@ import { diamond, isoBox } from "../projection";
 import { entityDims, fillPoly, strokePoly } from "./common";
 
 const GHOST_DIMS: Record<PlaceableKind, { s: number; h: number }> = {
-  power: { s: 0.62, h: 18 },
+  power: { s: 0.62, h: 20 },
   cooling: { s: 0.72, h: 26 },
   rack: { s: 0.78, h: 34 },
+  network: { s: 0.66, h: 22 },
+  crewpod: { s: 0.74, h: 20 },
 };
 
 export function drawGhost(
@@ -47,7 +49,11 @@ function sellRefund(p: Placed): number {
       ? POWER_TIERS[p.tier ?? 0].capex
       : p.kind === "cooling"
         ? COOLING_TIERS[p.tier ?? 0].capex
-        : RACK_CAPEX + (p.gpus ?? 0) * GPU_TIERS[p.gpuType ?? "h100"].capex;
+        : p.kind === "network"
+          ? NETWORK_TIERS[p.tier ?? 0].capex
+          : p.kind === "crewpod"
+            ? CREWPOD.capex
+            : RACK_CAPEX + (p.gpus ?? 0) * GPU_TIERS[p.gpuType ?? "h100"].capex;
   return capex * SELL_REFUND;
 }
 

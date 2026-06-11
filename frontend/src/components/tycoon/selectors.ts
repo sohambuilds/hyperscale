@@ -45,6 +45,7 @@ export function facilityCaps(s: GameState): { powerCap: number; coolCap: number 
   let powerCap = 0;
   let coolCap = 0;
   for (const p of s.placed) {
+    if (p.buildMs != null && p.buildMs > 0) continue; // under construction — not online
     if (p.kind === "power") powerCap += POWER_TIERS[p.tier ?? 0].kw;
     else if (p.kind === "cooling") coolCap += COOLING_TIERS[p.tier ?? 0].kw;
   }

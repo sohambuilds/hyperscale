@@ -48,6 +48,7 @@ export function RightPanel({ game }: { game: Game }) {
             onSetGpuType={game.setGpuType}
             onUpgradePower={game.upgradePower}
             onUpgradeCooling={game.upgradeCooling}
+            onUpgradeNetwork={game.upgradeNetwork}
             onSell={game.sell}
           />
         )}

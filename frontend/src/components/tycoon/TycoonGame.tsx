@@ -9,12 +9,13 @@ import { computeStats } from "../../game/engine";
 import { useTutorial } from "../../game/tutorial";
 import { useGame } from "../../game/useGame";
 import type { GameState } from "../../game/types";
-import { BuildPalette } from "../build/BuildPalette";
 import { ContractsBoard } from "../build/ContractsBoard";
 import { EndModal } from "../build/EndModal";
 import { Inspector } from "../build/Inspector";
 import { ResearchPanel } from "../build/ResearchPanel";
-import { MeterStrip } from "../build/MeterStrip";
+import { BuildDock } from "./hud/BuildDock";
+import { LevelUpBanner, useLevelUp } from "./hud/LevelUpBanner";
+import { QuestTray } from "./hud/QuestTray";
 import { TopBar, type PanelKind } from "./hud/TopBar";
 import { TutorialCoach } from "./TutorialCoach";
 import { WorldCanvas } from "./WorldCanvas";
@@ -28,11 +29,11 @@ const PANEL_TITLES: Record<PanelKind, string> = {
 };
 
 function onboardingHint(s: GameState): string | null {
-  if (!s.placed.some((p) => p.kind === "power")) return "① Pick Power below and click a tile to build it.";
-  if (!s.placed.some((p) => p.kind === "cooling")) return "② Add a Cooling unit — GPUs make heat.";
+  if (!s.placed.some((p) => p.kind === "power")) return "① Build a Reactor — pick it below and click a tile.";
+  if (!s.placed.some((p) => p.kind === "cooling")) return "② Raise a Cryo tower — GPUs make heat.";
   const racks = s.placed.filter((p) => p.kind === "rack");
-  if (!racks.length) return "③ Place a Server rack to hold GPUs.";
-  if (racks.reduce((a, r) => a + (r.gpus ?? 0), 0) === 0) return "④ Select the rack, then Install GPU servers.";
+  if (!racks.length) return "③ Place a Compute hub to hold GPUs.";
+  if (racks.reduce((a, r) => a + (r.gpus ?? 0), 0) === 0) return "④ Select the hub, then Install GPU servers.";
   if (s.contracts.length === 0) return "⑤ Open Contracts (top right) and sign an offer.";
   if (s.paused) return "▶ Press play to open for business.";
   return null;
@@ -43,6 +44,7 @@ export function TycoonGame() {
   const { state } = g;
   const tut = useTutorial(state);
   const stats = useMemo(() => computeStats(state), [state]);
+  const { celebration, dismiss } = useLevelUp(state.reputation);
 
   // latest frame for the canvas loop (no React re-render needed on its side)
   const frameRef = useRef<FrameData>({ state, stats });
@@ -86,7 +88,7 @@ export function TycoonGame() {
 
   // keyboard: Esc closes/cancels · 1-5 tools · Space pause (kept inside the gesture for audio)
   useEffect(() => {
-    const TOOL_KEYS = ["cursor", "power", "cooling", "rack", "sell"] as const;
+    const TOOL_KEYS = ["cursor", "power", "cooling", "rack", "network", "crewpod", "sell"] as const;
     const onKey = (e: KeyboardEvent): void => {
       if (e.repeat) return;
       const game = gameRef.current;
@@ -98,7 +100,7 @@ export function TycoonGame() {
       } else if (e.code === "Space") {
         e.preventDefault();
         if (st.status === "playing") game.setPaused(!st.paused);
-      } else if (/^Digit[1-5]$/.test(e.code)) {
+      } else if (/^Digit[1-7]$/.test(e.code)) {
         game.setTool(TOOL_KEYS[Number(e.code.slice(5)) - 1]);
       }
     };
@@ -126,10 +128,6 @@ export function TycoonGame() {
         />
       </div>
 
-      <div className="tyc-meters">
-        <MeterStrip state={state} />
-      </div>
-
       {!tut.active && ticker && (
         <div className="tyc-ticker">
           <div className="game-ticker ds-code">{ticker}</div>
@@ -137,8 +135,16 @@ export function TycoonGame() {
       )}
 
       <div className="tyc-toolbar">
-        <BuildPalette state={state} onSelectTool={g.setTool} />
+        <BuildDock state={state} onSelectTool={g.setTool} />
       </div>
+
+      {!tut.active && (
+        <div className="tyc-quests">
+          <QuestTray state={state} onClaim={g.claimQuest} />
+        </div>
+      )}
+
+      <LevelUpBanner celebration={celebration} dismiss={dismiss} />
 
       {panel && (
         <aside className="tyc-panel">
@@ -158,6 +164,7 @@ export function TycoonGame() {
                 onSetGpuType={g.setGpuType}
                 onUpgradePower={g.upgradePower}
                 onUpgradeCooling={g.upgradeCooling}
+                onUpgradeNetwork={g.upgradeNetwork}
                 onSell={g.sell}
               />
             )}

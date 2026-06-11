@@ -5,8 +5,8 @@
 import type { GpuTierId, PlaceableKind, TechId } from "./types";
 
 // --- grid -----------------------------------------------------------------------------------
-export const GRID_COLS = 8;
-export const GRID_ROWS = 6;
+export const GRID_COLS = 14;
+export const GRID_ROWS = 10;
 
 // --- starting conditions / win + lose ------------------------------------------------------
 export const START_CASH = 20_000;
@@ -49,11 +49,41 @@ export interface PlaceableSpec {
   capex: number;
   blurb: string;
 }
+// --- network uplink: caps total served req/s (base + gear). Upgradeable like power/cooling. ---
+export const BASE_NET_CAP = 120; // the building's own uplink before you add switches (req/s)
+export interface NetworkTier {
+  name: string;
+  cap: number; // req/s of bandwidth this tier provides
+  capex: number;
+  rentPerMin: number;
+  minRep: number;
+}
+export const NETWORK_TIERS: NetworkTier[] = [
+  { name: "Leaf switch", cap: 260, capex: 2_500, rentPerMin: 3, minRep: 0 },
+  { name: "Spine fabric", cap: 820, capex: 8_000, rentPerMin: 7, minRep: 4 },
+];
+
+// --- crew pod: houses a construction crew (+1 builder when operational) ----------------------
+export const CREWPOD = { name: "Crew pod", capex: 3_500, rentPerMin: 5 };
+export const BASE_BUILDERS = 2; // builders you start with (no pod needed)
+export const MAX_BUILDERS = 8;
+
+// --- construction: placing a building takes a free builder + wall-clock time -----------------
+export const BUILD_MS: Record<PlaceableKind, number> = {
+  power: 3_000,
+  cooling: 3_000,
+  rack: 2_200,
+  network: 3_200,
+  crewpod: 3_600,
+};
+
 // Base (tier-0) specs used by the build palette.
 export const PLACEABLES: Record<PlaceableKind, PlaceableSpec> = {
   power: { label: "Power", short: "PWR", capex: POWER_TIERS[0].capex, blurb: "Power capacity (kW). Upgrade to a Substation for far more. GPUs need power to run." },
   cooling: { label: "Cooling", short: "COOL", capex: COOLING_TIERS[0].capex, blurb: "Removes heat. Upgrade to Liquid for more capacity and a lower PUE (cheaper power)." },
   rack: { label: "Rack", short: "RACK", capex: 1_500, blurb: "Holds up to 4 GPU servers. Pick its GPU tier and serving policy in the inspector." },
+  network: { label: "Network", short: "NET", capex: NETWORK_TIERS[0].capex, blurb: "Uplink bandwidth — caps total req/s served. Upgrade to a Spine fabric to serve far more." },
+  crewpod: { label: "Crew pod", short: "CREW", capex: CREWPOD.capex, blurb: "Houses a build crew: +1 builder, so you can construct more at once." },
 };
 export const RACK_CAPEX = 1_500;
 export const RACK_RENT_PER_MIN = 1;

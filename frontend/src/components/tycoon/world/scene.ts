@@ -3,6 +3,7 @@
 // (y-sorted) → front cutaway walls → particles. Screen-space overlays (vignette, strain, paused)
 // come last via drawOverlays.
 
+import { BUILD_MS } from "../../../game/config";
 import { inBounds } from "../../../game/engine";
 import type { Placed, PlaceableKind } from "../../../game/types";
 import {
@@ -12,11 +13,13 @@ import {
   tileOccupant,
 } from "../selectors";
 import { AnimTracker, BORN_MS, REMOVE_MS } from "./anim";
+import type { Actor } from "./figures";
 import type { FxSystem } from "./fx";
 import { withAlpha, type Palette } from "./palette";
-import { tileCenter } from "./projection";
-import { drawSelectionRing } from "./sprites/common";
+import { isoBox, tileCenter } from "./projection";
+import { drawBoxBase, drawSelectionRing, drawShadow, entityDims, fillPoly, strokePoly } from "./sprites/common";
 import { drawCooling } from "./sprites/cooling";
+import { drawCrewPod } from "./sprites/crewpod";
 import {
   drawApron,
   drawBackWalls,
@@ -24,6 +27,7 @@ import {
   drawFrontWalls,
 } from "./sprites/floor";
 import { drawGhost, drawHoverRim, drawSellMark } from "./sprites/ghost";
+import { drawNetwork } from "./sprites/network";
 import { drawPower } from "./sprites/power";
 import { drawRack } from "./sprites/rack";
 import type { FrameData, HoverTile } from "./types";
@@ -42,22 +46,23 @@ export function drawScene(
   fx: FxSystem,
   pal: Palette,
   now: number,
+  actors: Actor[] = [],
 ): void {
   const { state, stats } = frame;
   const online = fracOnline(stats);
   const breaching = anyBreaching(state);
   const serving = stats.served > 0.5;
 
-  drawApron(ctx);
+  drawApron(ctx, pal, now);
   drawBackWalls(ctx, pal, now);
-  drawFloorTiles(ctx, pal, state, online);
+  drawFloorTiles(ctx, pal, state, online, now, fx.reduced);
 
   // hover feedback under the entities
   const tool = state.tool;
   if (hover && inBounds(hover.col, hover.row)) {
     const c = tileCenter(hover.col, hover.row);
     const occ = tileOccupant(state, hover.col, hover.row);
-    if (tool === "power" || tool === "cooling" || tool === "rack") {
+    if (tool === "power" || tool === "cooling" || tool === "rack" || tool === "network" || tool === "crewpod") {
       const v = placeValidity(state, tool as PlaceableKind, hover.col, hover.row);
       drawGhost(ctx, pal, tool as PlaceableKind, c, v.ok, v.cost);
     } else if (tool === "sell" && occ) {
@@ -67,9 +72,21 @@ export function drawScene(
     }
   }
 
-  // entities, y-sorted (col+row asc ≡ screen-y asc), with born/install animation transforms
-  const sorted = [...state.placed].sort((a, b) => a.col + a.row - (b.col + b.row) || a.col - b.col);
-  for (const p of sorted) {
+  // Buildings AND people merged into one depth-sorted stream (anchor screen-y asc ≡ far→near), so a
+  // technician walking behind a cabinet is painted before it and gets correctly occluded. Tile
+  // anchor y = tileCenter().y = (col+row)*HH, the same units as an actor's feet y.
+  type Drawable = { y: number; tie: number; p?: Placed; act?: Actor };
+  const drawables: Drawable[] = [];
+  for (const p of state.placed) drawables.push({ y: tileCenter(p.col, p.row).y, tie: p.col, p });
+  for (const a of actors) drawables.push({ y: a.y, tie: Number.MAX_SAFE_INTEGER, act: a });
+  drawables.sort((A, B) => A.y - B.y || A.tie - B.tie);
+
+  for (const d of drawables) {
+    if (d.act) {
+      d.act.render(ctx);
+      continue;
+    }
+    const p = d.p!;
     const c = tileCenter(p.col, p.row);
     const selected = state.selectedId === p.id;
     const hovered = tool === "cursor" && hover != null && hover.col === p.col && hover.row === p.row;
@@ -85,15 +102,20 @@ export function drawScene(
       ctx.scale(s, s);
       ctx.translate(-c.x, -c.y - (1 - u) * 10);
     }
-    drawEntity(ctx, pal, p, c, {
-      now,
-      selected,
-      hovered,
-      online,
-      serving,
-      breaching,
-      installT: p.kind === "rack" ? anims.installT(p.id, now) : null,
-    });
+    if (p.buildMs != null && p.buildMs > 0) {
+      const frac = Math.max(0, Math.min(1, 1 - p.buildMs / (BUILD_MS[p.kind] || 1)));
+      drawConstruction(ctx, pal, p, c, frac, now);
+    } else {
+      drawEntity(ctx, pal, p, c, {
+        now,
+        selected,
+        hovered,
+        online,
+        serving,
+        breaching,
+        installT: p.kind === "rack" ? anims.installT(p.id, now) : null,
+      });
+    }
     ctx.restore();
   }
 
@@ -134,6 +156,28 @@ function drawEntity(
   c: { x: number; y: number },
   v: EntityView,
 ): void {
+  // tier-1 prestige badge: a small gold star hovering above upgraded infrastructure
+  if ((p.tier ?? 0) >= 1 && p.kind !== "rack") {
+    const { h } = entityDims(p);
+    const by = c.y - h - 15 + Math.sin(v.now / 900 + c.x) * 1.5;
+    ctx.save();
+    ctx.fillStyle = withAlpha(pal.gold, 0.9);
+    ctx.shadowColor = pal.gold;
+    ctx.shadowBlur = 5;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI * 2) / 5;
+      const aIn = a + Math.PI / 5;
+      const R = 3.2;
+      ctx.lineTo(c.x + Math.cos(a) * R, by + Math.sin(a) * R);
+      ctx.lineTo(c.x + Math.cos(aIn) * R * 0.45, by + Math.sin(aIn) * R * 0.45);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const unit = { now: v.now, selected: v.selected, hovered: v.hovered };
   if (p.kind === "rack") {
     drawRack(ctx, pal, c, p, {
       now: v.now,
@@ -145,10 +189,79 @@ function drawEntity(
       installT: v.installT,
     });
   } else if (p.kind === "power") {
-    drawPower(ctx, pal, c, p, { now: v.now, selected: v.selected, hovered: v.hovered });
+    drawPower(ctx, pal, c, p, unit);
+  } else if (p.kind === "cooling") {
+    drawCooling(ctx, pal, c, p, unit);
+  } else if (p.kind === "network") {
+    drawNetwork(ctx, pal, c, p, unit);
   } else {
-    drawCooling(ctx, pal, c, p, { now: v.now, selected: v.selected, hovered: v.hovered });
+    drawCrewPod(ctx, pal, c, p, unit);
   }
+}
+
+/** A building under construction: a rising body clipped to its progress, a dashed cyan permit
+ *  wireframe, weld sparks at the build line, and a progress bar. Builders stand in front of it. */
+function drawConstruction(
+  ctx: CanvasRenderingContext2D,
+  pal: Palette,
+  p: Placed,
+  c: { x: number; y: number },
+  frac: number,
+  now: number,
+): void {
+  const { s, h } = entityDims(p);
+  drawShadow(ctx, c, s);
+  const box = isoBox(c, s, h);
+  const cutY = c.y - h * frac; // top of the built-so-far portion
+
+  // rising solid, clipped to the built height
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(c.x - 44, cutY, 88, 260);
+  ctx.clip();
+  drawBoxBase(ctx, pal, box, { l: "#141a28", r: "#192133", t: "#1b2438" });
+  ctx.restore();
+
+  // permit wireframe (full silhouette) + vertical edges, dashed cyan
+  ctx.setLineDash([3, 2]);
+  const wf = withAlpha(pal.cyan, 0.45);
+  strokePoly(ctx, box.top, wf, 1);
+  for (const [a, b] of [
+    [box.w, { x: box.w.x, y: box.w.y + h }],
+    [box.s, { x: box.s.x, y: box.s.y + h }],
+    [box.e, { x: box.e.x, y: box.e.y + h }],
+  ] as const) {
+    ctx.strokeStyle = wf;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // weld sparks along the build line
+  if (frac > 0.02 && frac < 0.99) {
+    fillPoly(ctx, [
+      { x: c.x - 14, y: cutY },
+      { x: c.x + 14, y: cutY },
+      { x: c.x + 14, y: cutY + 1 },
+      { x: c.x - 14, y: cutY + 1 },
+    ], withAlpha(pal.amber, 0.5));
+    if (Math.sin(now / 90 + c.x) > 0.6) {
+      ctx.fillStyle = withAlpha(pal.amber, 0.95);
+      ctx.fillRect(c.x - 6 + Math.random() * 12, cutY - 1, 1, 1.5);
+    }
+  }
+
+  // progress bar above
+  const bw = 22;
+  const bx = c.x - bw / 2;
+  const by = c.y - h - 12;
+  ctx.fillStyle = "rgba(8,12,20,0.85)";
+  ctx.fillRect(bx - 1, by - 1, bw + 2, 4);
+  ctx.fillStyle = withAlpha(pal.cyan, 0.9);
+  ctx.fillRect(bx, by, bw * frac, 2);
 }
 
 /** Screen-space layers: edge vignette, breach strain pulse, paused wash + tag. */

@@ -1,4 +1,5 @@
-import { COOLING_TIERS, GPU_TIERS, GPU_TIER_ORDER, POWER_TIERS, RACK_SLOTS } from "../../game/config";
+import { COOLING_TIERS, CREWPOD, GPU_TIERS, GPU_TIER_ORDER, NETWORK_TIERS, POWER_TIERS, RACK_SLOTS } from "../../game/config";
+import { builderInfo } from "../../game/engine";
 import { fmt } from "../../format";
 import type { GameState, GpuTierId, Placed, Policy } from "../../game/types";
 import { Segmented } from "../mc/primitives";
@@ -11,6 +12,7 @@ interface InspectorProps {
   onSetGpuType: (rackId: string, tier: GpuTierId) => void;
   onUpgradePower: (id: string) => void;
   onUpgradeCooling: (id: string) => void;
+  onUpgradeNetwork: (id: string) => void;
   onSell: (id: string) => void;
 }
 
@@ -29,9 +31,84 @@ export function Inspector(props: InspectorProps) {
     );
   }
 
-  if (sel.kind === "power") return <UtilityInspector sel={sel} {...props} kind="power" />;
-  if (sel.kind === "cooling") return <UtilityInspector sel={sel} {...props} kind="cooling" />;
-  return <RackInspector sel={sel} {...props} />;
+  const building = sel.buildMs != null && sel.buildMs > 0;
+  let body: React.ReactNode;
+  if (sel.kind === "power") body = <UtilityInspector sel={sel} {...props} kind="power" />;
+  else if (sel.kind === "cooling") body = <UtilityInspector sel={sel} {...props} kind="cooling" />;
+  else if (sel.kind === "network") body = <NetworkInspector sel={sel} {...props} />;
+  else if (sel.kind === "crewpod") body = <CrewPodInspector sel={sel} {...props} />;
+  else body = <RackInspector sel={sel} {...props} />;
+
+  return (
+    <>
+      {building && <div className="inspector-building ds-code">Under construction — a builder is on it.</div>}
+      {body}
+    </>
+  );
+}
+
+function NetworkInspector({ sel, state, onUpgradeNetwork, onSell }: InspectorProps & { sel: Placed }) {
+  const tier = sel.tier ?? 0;
+  const cur = NETWORK_TIERS[tier];
+  const nxt = NETWORK_TIERS[tier + 1];
+  const cost = nxt ? nxt.capex - cur.capex : 0;
+  const repLocked = nxt ? state.reputation < nxt.minRep : false;
+  return (
+    <section className="panel inspector">
+      <header className="inspector-head">
+        <h3 className="ds-title">{cur.name}</h3>
+        <span className="ds-code">{cur.cap} req/s</span>
+      </header>
+      <p className="inspector-blurb">Uplink bandwidth — caps total requests served across the whole facility.</p>
+      <div className="inspector-row">
+        <span>rent</span>
+        <span className="ds-num">{fmt.money(cur.rentPerMin)}/min</span>
+      </div>
+      {nxt ? (
+        <div className="inspector-block">
+          <span className="ds-label">upgrade</span>
+          <p className="inspector-blurb">
+            <b>{nxt.name}</b> — {nxt.cap} req/s of bandwidth.
+          </p>
+          <button type="button" className="btn primary sm" disabled={repLocked} onClick={() => onUpgradeNetwork(sel.id)}>
+            {repLocked ? `Unlocks at reputation ${nxt.minRep}` : `Upgrade · ${fmt.money(cost)}`}
+          </button>
+        </div>
+      ) : (
+        <p className="inspector-blurb ds-code">Top tier installed.</p>
+      )}
+      <button type="button" className="btn danger" onClick={() => onSell(sel.id)}>
+        Sell ({fmt.money(cur.capex * 0.5)} back)
+      </button>
+    </section>
+  );
+}
+
+function CrewPodInspector({ sel, state, onSell }: InspectorProps & { sel: Placed }) {
+  const b = builderInfo(state);
+  return (
+    <section className="panel inspector">
+      <header className="inspector-head">
+        <h3 className="ds-title">{CREWPOD.name}</h3>
+        <span className="ds-code">+1 builder</span>
+      </header>
+      <p className="inspector-blurb">
+        Houses a build crew. More builders means more buildings can go up at once — handy when you're
+        expanding fast.
+      </p>
+      <div className="inspector-row">
+        <span>build crew</span>
+        <span className="ds-num">{b.total} total · {b.free} idle</span>
+      </div>
+      <div className="inspector-row">
+        <span>rent</span>
+        <span className="ds-num">{fmt.money(CREWPOD.rentPerMin)}/min</span>
+      </div>
+      <button type="button" className="btn danger" onClick={() => onSell(sel.id)}>
+        Sell ({fmt.money(CREWPOD.capex * 0.5)} back)
+      </button>
+    </section>
+  );
 }
 
 function UtilityInspector({
